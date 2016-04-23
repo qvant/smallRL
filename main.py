@@ -1,4 +1,5 @@
 import libtcodpy as libtcod
+import math
 
 SCREEN_WIDTH = 80
 SCREEN_HEIGHT = 50
@@ -16,6 +17,8 @@ FOV_LIGHT_WALLS = True
 TORCH_RADIUS = 10
 
 MAX_ROOM_MONSTERS = 3
+
+
 
 class Rect:
 	def __init__(self, x, y, w, h):
@@ -89,13 +92,22 @@ def handle_keys():
 class Object:
 	#this is a generic object: the player, a monster, an item, the stairs...
 	#it's always represented by a character on screen.
-	def __init__(self, x, y, char, color, name = '', blocks = False):
+	def __init__(self, x, y, char, color, name = '', blocks = False, fighter = None, ai = None):
 		self.x = x
 		self.y = y
 		self.char = char
 		self.color = color
 		self.name = name
 		self.blocks = blocks
+		self.fighter = fighter
+		if self.fighter:
+			#let the fighter component know who owns it
+			self.fighter.owner = self
+			
+		self.ai = ai
+		if self.ai:
+			#let the ai component know who owns it
+			self.ai.owner = self
  
 	def move(self, dx, dy):
 		#move by the given amount
@@ -116,6 +128,24 @@ class Object:
 		#else:
 		#	if map[self.x][self.y].block_sight:
 		#		libtcod.console_put_char_ex(con, self.x, self.y, '.', libtcod.white, black.black)
+	
+	def move_towards(self, target_x, target_y):
+		#vector from this object to the target, and distance
+		dx = target_x - self.x
+		dy = target_y - self.y
+		distance = math.sqrt(dx ** 2 + dy ** 2)
+
+		#normalize it to length 1 (preserving direction), then round it and
+		#convert to integer so the movement is restricted to the map grid
+		dx = int(round(dx / distance))
+		dy = int(round(dy / distance))
+		self.move(dx, dy)
+		
+	def distance_to(self, other):
+		#return the distance to another object
+		dx = other.x - self.x
+		dy = other.y - self.y
+		return math.sqrt(dx ** 2 + dy ** 2)
 		
 class Tile:
 	def __init__(self, blocked, block_sight = None):
@@ -125,6 +155,27 @@ class Tile:
 			block_sight = blocked
 		self.block_sight = block_sight
 		self.explored = False
+		
+class fighter:
+	#combat-related properties and methods (monster, player, NPC).
+	def __init__(self, hp, defence, power):
+		self.max_hp = hp
+		self.hp = hp
+		self.defence = defence
+		self.power = power
+		
+class BasicMonster:
+	#AI for a basic monster.
+	def take_turn(self):
+		print 'The ' + self.owner.name + ' growls!'
+		monster = self.owner
+		if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
+			#move towards player if far away
+			if monster.distance_to(player) >= 2:
+				monster.move_towards(player.x, player.y)
+			#close enough, attack! (if the player is still alive.)
+			elif player.fighter.hp > 0:
+				print 'The attack of the ' + monster.name + ' bounces off your shiny metal armor!'
 		
 def place_objects(room):
 	#choose random number of monsters
@@ -139,10 +190,14 @@ def place_objects(room):
 		
 			if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
 				#create an orc
-				monster = Object(x, y, 'o', libtcod.desaturated_green, 'orc', True)
+				fighter_component = fighter(hp=10, defence=0, power=3)
+				ai_component = BasicMonster()
+				monster = Object(x, y, 'o', libtcod.desaturated_green, 'orc', True, fighter_component, ai_component)
 			else:
 				#create a troll
-				monster = Object(x, y, 'T', libtcod.darker_green, 'troll', True)
+				fighter_component = fighter(hp=16, defence=1, power=4)
+				ai_component = BasicMonster()
+				monster = Object(x, y, 'T', libtcod.darker_green, 'troll', True, fighter_component, ai_component)
 				
 			objects.append(monster)
 		
@@ -306,7 +361,8 @@ playery = SCREEN_HEIGHT/2
 game_state = 'playing'
 player_action = None
 
-player = Object(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, '@', libtcod.white, 'player', blocks = True)
+fighter_component = fighter(hp=30, defence=2, power=5)
+player = Object(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, '@', libtcod.white, 'player', blocks = True, fighter = fighter_component)
 player.x = 25
 player.y = 23
 #npc = Object(SCREEN_WIDTH/2 - 5, SCREEN_HEIGHT/2, '@', libtcod.yellow)
@@ -326,8 +382,11 @@ old_map_style = False
 global fov_recompute
 fov_recompute = True
 
+
+
 make_map()
 
+#create the FOV map, according to the generated map
 fov_map = libtcod.map_new(MAP_WIDTH, MAP_HEIGHT)
 for y in range(MAP_HEIGHT):
 	for x in range(MAP_WIDTH):
@@ -351,5 +410,7 @@ while not libtcod.console_is_window_closed():
 	#let monsters take their turn
 	if game_state == 'playing' and player_action != 'didnt-take-turn':
 		for object in objects:
-			if object != player:
-				print 'The ' + object.name + ' growls!'
+			if object.ai:
+				object.ai.take_turn()
+				
+
