@@ -72,19 +72,19 @@ def handle_keys():
 	if game_state == 'playing':
 		#movement keys
 		if libtcod.console_is_key_pressed(libtcod.KEY_UP):
-			player.move(0, -1)
+			player_move_or_attack(0, -1)
 			fov_recompute = True
 
 		elif libtcod.console_is_key_pressed(libtcod.KEY_DOWN):
-			player.move(0, 1)
+			player_move_or_attack(0, 1)
 			fov_recompute = True
 	 
 		elif libtcod.console_is_key_pressed(libtcod.KEY_LEFT):
-			player.move(-1, 0)
+			player_move_or_attack(-1, 0)
 			fov_recompute = True
 
 		elif libtcod.console_is_key_pressed(libtcod.KEY_RIGHT):
-			player.move(1, 0)
+			player_move_or_attack(1, 0)
 			fov_recompute = True
 		else:
 			return 'didnt-take-turn'
@@ -147,6 +147,12 @@ class Object:
 		dy = other.y - self.y
 		return math.sqrt(dx ** 2 + dy ** 2)
 		
+	def send_to_back(self):
+		#make this object be drawn first, so all others appear above it if they're in the same tile.
+		global objects
+		objects.remove(self)
+		objects.insert(0, self)
+		
 class Tile:
 	def __init__(self, blocked, block_sight = None):
 		self.blocked = blocked
@@ -156,26 +162,45 @@ class Tile:
 		self.block_sight = block_sight
 		self.explored = False
 		
-class fighter:
+class Fighter:
 	#combat-related properties and methods (monster, player, NPC).
-	def __init__(self, hp, defence, power):
+	def __init__(self, hp, defense, power, death_function=None):
 		self.max_hp = hp
 		self.hp = hp
-		self.defence = defence
+		self.defense = defense
 		self.power = power
+		self.death_function = death_function
+	def take_damage(self, damage):
+		#apply damage if possible
+		if damage > 0:
+			self.hp -= damage
+		if self.hp <= 0:
+			function = self.death_function
+			if function is not None:
+				function(self.owner)
+	def attack(self, target):
+		#a simple formula for attack damage
+		damage = self.power - target.fighter.defense
+		
+		if damage > 0:
+			#make the target take some damage
+			print self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.'
+			target.fighter.take_damage(damage)
+		else:
+			print self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!'
 		
 class BasicMonster:
 	#AI for a basic monster.
 	def take_turn(self):
-		print 'The ' + self.owner.name + ' growls!'
 		monster = self.owner
 		if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
+			print 'The ' + self.owner.name + ' growls!'
 			#move towards player if far away
 			if monster.distance_to(player) >= 2:
 				monster.move_towards(player.x, player.y)
 			#close enough, attack! (if the player is still alive.)
 			elif player.fighter.hp > 0:
-				print 'The attack of the ' + monster.name + ' bounces off your shiny metal armor!'
+				monster.fighter.attack(player)
 		
 def place_objects(room):
 	#choose random number of monsters
@@ -190,12 +215,12 @@ def place_objects(room):
 		
 			if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
 				#create an orc
-				fighter_component = fighter(hp=10, defence=0, power=3)
+				fighter_component = Fighter(hp=10, defense=0, power=3, death_function=monster_death)
 				ai_component = BasicMonster()
 				monster = Object(x, y, 'o', libtcod.desaturated_green, 'orc', True, fighter_component, ai_component)
 			else:
 				#create a troll
-				fighter_component = fighter(hp=16, defence=1, power=4)
+				fighter_component = Fighter(hp=16, defense=1, power=4, death_function=monster_death)
 				ai_component = BasicMonster()
 				monster = Object(x, y, 'T', libtcod.darker_green, 'troll', True, fighter_component, ai_component)
 				
@@ -220,17 +245,16 @@ def player_move_or_attack(dx, dy):
 	#the coordinates the player is moving to/attacking
 	x = player.x + dx
 	y = player.y + dy
-	
 	#try to find an attackable object there
 	target = None
 	for object in objects:
-		if object.x == x and object.y == y:
+		if object.x == x and object.y == y and object.fighter:
 			target = object
 			break
 	
 	#attack if target found, move otherwise
 	if target is not None:
-		print 'The ' + target.name + ' laughs at your puny efforts to attack him!'
+		player.fighter.attack(target)
 	else:
 		player.move(dx, dy)
 		fov_recompute = True
@@ -302,6 +326,29 @@ def make_map():
 			room_no = Object(new_x, new_y, chr(65+num_rooms), libtcod.white, 'room number')
 			objects.insert(0, room_no) #draw early, so monsters are drawn on top
 	
+	
+def player_death(player):
+	#the game ended!
+	global game_state
+	print 'You died!'
+	game_state = 'dead'
+	
+	#for added effect, transform the player into a corpse!
+	player.char = '%'
+	player.color = libtcod.dark_red
+ 
+def monster_death(monster):
+	#transform it into a nasty corpse! it doesn't block, can't be
+	#attacked and doesn't move
+	print monster.name.capitalize() + ' is dead!'
+	monster.char = '%'
+	monster.color = libtcod.dark_red
+	monster.blocks = False
+	monster.fighter = None
+	monster.ai = None
+	monster.name = 'remains of ' + monster.name
+	monster.send_to_back()
+	
 def render_all():
 	global color_light_wall
 	global color_light_ground
@@ -342,10 +389,17 @@ def render_all():
 					else:
 						libtcod.console_put_char_ex(con, x, y, '.', libtcod.white, libtcod.black)
 				map[x][y].explored = True
-	#draw all objects in the list
+	#draw all objects in the list, except the player. we want it to
+	#always appear over all other objects! so it's drawn later.
 	for object in objects:
-		object.draw()
+		if object != player:
+			object.draw()
+	player.draw()
 	libtcod.console_blit(con, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0)
+	#show the player's stats
+	libtcod.console_set_default_foreground(con, libtcod.white)
+	libtcod.console_print_ex(0, 1, SCREEN_HEIGHT - 2, libtcod.BKGND_NONE, libtcod.LEFT,
+        'HP: ' + str(player.fighter.hp) + '/' + str(player.fighter.max_hp))
 		
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
 libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'python/libtcod tutorial', False)
@@ -361,7 +415,7 @@ playery = SCREEN_HEIGHT/2
 game_state = 'playing'
 player_action = None
 
-fighter_component = fighter(hp=30, defence=2, power=5)
+fighter_component = Fighter(hp=30, defense=2, power=5, death_function=player_death)
 player = Object(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, '@', libtcod.white, 'player', blocks = True, fighter = fighter_component)
 player.x = 25
 player.y = 23
