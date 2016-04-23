@@ -1,12 +1,13 @@
 import libtcodpy as libtcod
 import math
+import textwrap 
 
 SCREEN_WIDTH = 80
 SCREEN_HEIGHT = 50
 LIMIT_FPS = 20
 
 MAP_WIDTH = 80
-MAP_HEIGHT = 45
+MAP_HEIGHT = 43
 
 ROOM_MAX_SIZE = 10
 ROOM_MIN_SIZE = 6
@@ -18,7 +19,15 @@ TORCH_RADIUS = 10
 
 MAX_ROOM_MONSTERS = 3
 
+#sizes and coordinates relevant for the GUI
+BAR_WIDTH = 20
+PANEL_HEIGHT = 7
+PANEL_Y = SCREEN_HEIGHT - PANEL_HEIGHT
 
+#The constants that define the message bar's position and size are: 
+MSG_X = BAR_WIDTH + 2
+MSG_WIDTH = SCREEN_WIDTH - BAR_WIDTH - 2
+MSG_HEIGHT = PANEL_HEIGHT - 1
 
 class Rect:
 	def __init__(self, x, y, w, h):
@@ -184,17 +193,17 @@ class Fighter:
 		
 		if damage > 0:
 			#make the target take some damage
-			print self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.'
+			message( self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.')
 			target.fighter.take_damage(damage)
 		else:
-			print self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!'
+			message (self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!')
 		
 class BasicMonster:
 	#AI for a basic monster.
 	def take_turn(self):
 		monster = self.owner
 		if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
-			print 'The ' + self.owner.name + ' growls!'
+			message( 'The ' + self.owner.name + ' growls!')
 			#move towards player if far away
 			if monster.distance_to(player) >= 2:
 				monster.move_towards(player.x, player.y)
@@ -330,7 +339,7 @@ def make_map():
 def player_death(player):
 	#the game ended!
 	global game_state
-	print 'You died!'
+	message( 'You died!', libtcod.red)
 	game_state = 'dead'
 	
 	#for added effect, transform the player into a corpse!
@@ -340,7 +349,7 @@ def player_death(player):
 def monster_death(monster):
 	#transform it into a nasty corpse! it doesn't block, can't be
 	#attacked and doesn't move
-	print monster.name.capitalize() + ' is dead!'
+	message( monster.name.capitalize() + ' is dead!', libtcod.orange)
 	monster.char = '%'
 	monster.color = libtcod.dark_red
 	monster.blocks = False
@@ -353,6 +362,7 @@ def render_all():
 	global color_light_wall
 	global color_light_ground
 	global fov_recompute
+	global game_msgs
 	
 	if fov_recompute:
 		#recompute FOV if needed (the player moved or something)
@@ -397,10 +407,57 @@ def render_all():
 	player.draw()
 	libtcod.console_blit(con, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0)
 	#show the player's stats
-	libtcod.console_set_default_foreground(con, libtcod.white)
-	libtcod.console_print_ex(0, 1, SCREEN_HEIGHT - 2, libtcod.BKGND_NONE, libtcod.LEFT,
-        'HP: ' + str(player.fighter.hp) + '/' + str(player.fighter.max_hp))
+	#libtcod.console_set_default_foreground(con, libtcod.white)
+	#libtcod.console_print_ex(0, 1, SCREEN_HEIGHT - 2, libtcod.BKGND_NONE, libtcod.LEFT,
+    #    'HP: ' + str(player.fighter.hp) + '/' + str(player.fighter.max_hp))
+	#prepare to render the GUI panel
+	libtcod.console_set_default_background(panel, libtcod.black)
+	libtcod.console_clear(panel)
+ 
+	#show the player's stats
+	render_bar(1, 1, BAR_WIDTH, 'HP', player.fighter.hp, player.fighter.max_hp,
+        libtcod.light_red, libtcod.darker_red)
+	
+	#print the game messages, one line at a time
+	y = 1
+	for (line, color) in game_msgs:
+		libtcod.console_set_default_foreground(panel, color)
+		libtcod.console_print_ex(panel, MSG_X, y, libtcod.BKGND_NONE, libtcod.LEFT, line)
+		y += 1
+    #blit the contents of "panel" to the root console
+	libtcod.console_blit(panel, 0, 0, SCREEN_WIDTH, PANEL_HEIGHT, 0, 0, PANEL_Y)
+	
 		
+def render_bar(x, y, total_width, name, value, maximum, bar_color, back_color):
+	#render a bar (HP, experience, etc). first calculate the width of the bar
+	bar_width = int(float(value) / maximum * total_width)
+	
+	#render the background first
+	libtcod.console_set_default_background(panel, back_color)
+	libtcod.console_rect(panel, x, y, total_width, 1, False, libtcod.BKGND_SCREEN)
+	
+	#now render the bar on top
+	libtcod.console_set_default_background(panel, bar_color)
+	if bar_width > 0:
+		libtcod.console_rect(panel, x, y, bar_width, 1, False, libtcod.BKGND_SCREEN)
+	#finally, some centered text with the values
+	libtcod.console_set_default_foreground(panel, libtcod.white)
+	libtcod.console_print_ex(panel, x + total_width / 2, y, libtcod.BKGND_NONE, libtcod.CENTER,
+        name + ': ' + str(value) + '/' + str(maximum))
+	
+	
+def message(new_msg, color = libtcod.white):
+	global game_msgs
+	#split the message if necessary, among multiple lines
+	new_msg_lines = textwrap.wrap(new_msg, MSG_WIDTH)
+	for line in new_msg_lines:
+		#if the buffer is full, remove the first line to make room for the new one
+		if len(game_msgs) == MSG_HEIGHT:
+			del game_msgs[0]
+		#add the new line as a tuple, with the text and the color
+		game_msgs.append((line, color))
+	
+
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
 libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'python/libtcod tutorial', False)
 
@@ -416,7 +473,7 @@ game_state = 'playing'
 player_action = None
 
 fighter_component = Fighter(hp=30, defense=2, power=5, death_function=player_death)
-player = Object(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, '@', libtcod.white, 'player', blocks = True, fighter = fighter_component)
+player = Object(MAP_WIDTH/2, MAP_HEIGHT/2, '@', libtcod.white, 'player', blocks = True, fighter = fighter_component)
 player.x = 25
 player.y = 23
 #npc = Object(SCREEN_WIDTH/2 - 5, SCREEN_HEIGHT/2, '@', libtcod.yellow)
@@ -446,7 +503,14 @@ for y in range(MAP_HEIGHT):
 	for x in range(MAP_WIDTH):
 		libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
 		
+panel = libtcod.console_new(SCREEN_WIDTH, PANEL_HEIGHT)
 
+#create the list of game messages and their colors, starts empty
+global game_msgs
+game_msgs = []
+
+#a warm welcoming message!
+message('Welcome stranger! Prepare to perish in the Tombs of the Ancient Kings.', libtcod.red)
 
 while not libtcod.console_is_window_closed():	
 	
