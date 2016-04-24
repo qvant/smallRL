@@ -65,11 +65,22 @@ def create_v_tunnel(y1, y2, x):
 		map[x][y].blocked = False
 		map[x][y].block_sight = False
 
+def get_names_under_mouse():
+	global mouse
+	
+	#return a string with the names of all objects under the mouse
+	(x, y) = (mouse.cx, mouse.cy)
+	#create a list with the names of all objects at the mouse's coordinates and in FOV
+	names = [obj.name for obj in objects
+		if obj.x == x and obj.y == y and libtcod.map_is_in_fov(fov_map, obj.x, obj.y)]
+	names = ', '.join(names)  #join the names, separated by commas
+	return names.capitalize()
+		
 def handle_keys():
-	global playerx, playery, fov_recompute
+	global playerx, playery, fov_recompute, key
 	
 	#key = libtcod.console_check_for_keypress()  #real-time
-	key = libtcod.console_wait_for_keypress(True)  #turn-based
+	#key = libtcod.console_wait_for_keypress(True)  #turn-based
 
 	if key.vk == libtcod.KEY_ENTER and key.lalt:
 		#Alt+Enter: toggle fullscreen
@@ -80,19 +91,19 @@ def handle_keys():
 	
 	if game_state == 'playing':
 		#movement keys
-		if libtcod.console_is_key_pressed(libtcod.KEY_UP):
+		if key.vk == libtcod.KEY_UP:
 			player_move_or_attack(0, -1)
 			fov_recompute = True
 
-		elif libtcod.console_is_key_pressed(libtcod.KEY_DOWN):
+		elif key.vk == libtcod.KEY_DOWN:
 			player_move_or_attack(0, 1)
 			fov_recompute = True
 	 
-		elif libtcod.console_is_key_pressed(libtcod.KEY_LEFT):
+		elif key.vk == libtcod.KEY_LEFT:
 			player_move_or_attack(-1, 0)
 			fov_recompute = True
 
-		elif libtcod.console_is_key_pressed(libtcod.KEY_RIGHT):
+		elif key.vk == libtcod.KEY_RIGHT:
 			player_move_or_attack(1, 0)
 			fov_recompute = True
 		else:
@@ -418,6 +429,10 @@ def render_all():
 	render_bar(1, 1, BAR_WIDTH, 'HP', player.fighter.hp, player.fighter.max_hp,
         libtcod.light_red, libtcod.darker_red)
 	
+	#display names of objects under the mouse
+	libtcod.console_set_default_foreground(panel, libtcod.light_gray)
+	libtcod.console_print_ex(panel, 1, 0, libtcod.BKGND_NONE, libtcod.LEFT, get_names_under_mouse())
+	
 	#print the game messages, one line at a time
 	y = 1
 	for (line, color) in game_msgs:
@@ -512,8 +527,12 @@ game_msgs = []
 #a warm welcoming message!
 message('Welcome stranger! Prepare to perish in the Tombs of the Ancient Kings.', libtcod.red)
 
+mouse = libtcod.Mouse()
+key = libtcod.Key()
+
 while not libtcod.console_is_window_closed():	
 	
+	libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE,key,mouse)
 	render_all()
 	
 	libtcod.console_flush()
