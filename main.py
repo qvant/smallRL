@@ -588,10 +588,10 @@ def make_map():
 			#finally, append the new room to the list
 			rooms.append(new_room)
 			num_rooms += 1
-			room_no = Object(new_x, new_y, chr(65+num_rooms), libtcod.white, 'room number')
-			objects.insert(0, room_no) #draw early, so monsters are drawn on top
+			#room_no = Object(new_x, new_y, chr(65+num_rooms), libtcod.white, 'room number')
+			#objects.insert(0, room_no) #draw early, so monsters are drawn on top
 	#create stairs at the center of the last room
-	stairs = Object(new_x, new_y, '<', 'stairs', libtcod.white, always_visible=True)
+	stairs = Object(new_x, new_y, '<', name='stairs', color=libtcod.white, always_visible=True)
 	objects.append(stairs)
 	stairs.send_to_back()  #so it's drawn below the monsters
 	
@@ -911,14 +911,17 @@ def msgbox(text, width=50):
 	#time.sleep(0.3)
 
 def next_level():
+	global dungeon_level
 	#advance to the next level
 	message('You take a moment to rest, and recover your strength.', libtcod.light_violet)
 	player.fighter.heal(player.fighter.max_hp / 2)  #heal the player by 50%
 	
 	message('After a rare moment of peace, you descend deeper into the heart of the dungeon...', libtcod.red)
+	libtcod.console_clear(con)  #unexplored areas start black (which is the default background color)
 	make_map()  #create a fresh new level!
 	initialize_fov()
 	dungeon_level += 1
+	save_game()
 	
 def check_level_up():
 	#see if the player's experience is enough to level-up
