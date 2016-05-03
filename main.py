@@ -22,9 +22,6 @@ FOV_ALGO = 0  #default FOV algorithm
 FOV_LIGHT_WALLS = True
 TORCH_RADIUS = 10
 
-MAX_ROOM_MONSTERS = 3
-
-MAX_ROOM_ITEMS = 2
 
 INVENTORY_WIDTH = 50 
 
@@ -42,13 +39,13 @@ MAX_INVENTORY_ITEMS = 26
 
 MAX_OPTIONS = MAX_INVENTORY_ITEMS
 
-HEAL_AMOUNT = 4 
-LIGHTNING_DAMAGE = 20 
+HEAL_AMOUNT = 40 
+LIGHTNING_DAMAGE = 40 
 LIGHTNING_RANGE = 5
 CONFUSE_NUM_TURNS = 10
 CONFUSE_RANGE = 8
 FIREBALL_RADIUS = 3
-FIREBALL_DAMAGE = 12
+FIREBALL_DAMAGE = 25
 
 #experience and level-ups
 LEVEL_UP_BASE = 200
@@ -352,11 +349,29 @@ class BasicMonster:
 				monster.fighter.attack(player)
 		
 def place_objects(room):
+	#maximum number of monsters per room
+	max_monsters = from_dungeon_level([[2, 1], [3, 4], [5, 6]])
+	
+	#chance of each monster
+	monster_chances = {}
+	monster_chances['orc'] = 80  #orc always shows up, even if all other monsters have 0 chance
+	monster_chances['troll'] = from_dungeon_level([[15, 3], [30, 5], [60, 7]])
+	
+	#maximum number of items per room
+	max_items = from_dungeon_level([[1, 1], [2, 4]])
+	
+	#chance of each item (by default they have a chance of 0 at level 1, which then goes up)
+	item_chances = {}
+	item_chances['heal'] = 35  #healing potion always shows up, even if all other items have 0 chance
+	item_chances['lightning'] = from_dungeon_level([[25, 4]])
+	item_chances['fireball'] =  from_dungeon_level([[25, 6]])
+	item_chances['confuse'] =   from_dungeon_level([[10, 2]])
+	
 	monster_chances = {'orc': 80, 'troll': 20}
 	item_chances = {'heal': 70, 'lightning': 10, 'fireball': 10, 'confuse': 10}
 	#place monsters
 	#choose random number of monsters
-	num_monsters = libtcod.random_get_int(0, 0, MAX_ROOM_MONSTERS)
+	num_monsters = libtcod.random_get_int(0, 0, max_monsters)
 	
 	for i in range(num_monsters):
 		#choose random spot for this monster
@@ -368,18 +383,18 @@ def place_objects(room):
 			choice = random_choice(monster_chances)
 			if choice == 'orc':  
 				#create an orc
-				fighter_component = Fighter(hp=10, defense=0, power=3, death_function=monster_death, xp = 35)
+				fighter_component = Fighter(hp=20, defense=0, power=4, death_function=monster_death, xp = 35)
 				ai_component = BasicMonster()
 				monster = Object(x, y, 'o', libtcod.desaturated_green, 'orc', True, fighter_component, ai_component)
 			elif choice == 'troll':
 				#create a troll
-				fighter_component = Fighter(hp=16, defense=1, power=4, death_function=monster_death, xp = 100)
+				fighter_component = Fighter(hp=30, defense=2, power=8, death_function=monster_death, xp = 100)
 				ai_component = BasicMonster()
 				monster = Object(x, y, 'T', libtcod.darker_green, 'troll', True, fighter_component, ai_component)
 				
 			objects.append(monster)
 	#place items
-	num_items = libtcod.random_get_int(0, 0, MAX_ROOM_ITEMS)
+	num_items = libtcod.random_get_int(0, 0, max_items)
 	
 	for i in range(num_items):
 		#choose random spot for this item
@@ -789,11 +804,12 @@ def cast_heal():
 	
 def new_game():
 	global player, inventory, game_msgs, game_state, dungeon_level
-	fighter_component = Fighter(hp=30, defense=2, power=5, xp = 0, death_function=player_death)
+	fighter_component = Fighter(hp=100, defense=1, power=4, xp = 0, death_function=player_death)
 	player = Object(MAP_WIDTH/2, MAP_HEIGHT/2, '@', libtcod.white, 'player', blocks = True, fighter = fighter_component)
 	player.level = 1
 	game_state = 'playing'
 	libtcod.console_clear(con)  #unexplored areas start black (which is the default background color)
+	dungeon_level = 1
 	#generate map (at this point it's not drawn to the screen)
 	make_map()
 	#The new_game function should initialize FOV right after creating the map:
@@ -806,7 +822,7 @@ def new_game():
 
 	#a warm welcoming message!
 	message('Welcome stranger! Prepare to perish in the Tombs of the Ancient Kings.', libtcod.red)
-	dungeon_level = 1
+	
 	
 def initialize_fov():
 	global fov_recompute, fov_map
@@ -969,6 +985,14 @@ def random_choice(chances_dict):
 	chances = chances_dict.values()
 	strings = chances_dict.keys()
 	return strings[random_choice_index(chances)]
+	
+def from_dungeon_level(table):
+	global dungeon_level
+	#returns a value that depends on level. the table specifies what value occurs after each level, default is 0.
+	for (value, level) in reversed(sorted(table)):
+		if dungeon_level >= level:
+			return value
+	return 0
 			
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
 libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'python/libtcod tutorial', False)
