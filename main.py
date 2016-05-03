@@ -66,6 +66,36 @@ class ConfusedMonster:
 			self.owner.ai = self.old_ai
 			message('The ' + self.owner.name + ' is no longer confused!', libtcod.red)
 		
+class Equipment:
+	#an object that can be equipped, yielding bonuses. automatically adds the Item component.
+	def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0):
+		self.slot = slot
+		self.is_equipped = False
+		self.power_bonus = power_bonus
+		self.defense_bonus = defense_bonus
+		self.max_hp_bonus = max_hp_bonus
+		
+	def toggle_equip(self):  #toggle equip/dequip status
+		if self.is_equipped:
+			self.dequip()
+		else:
+			self.equip()
+	
+	def equip(self):
+		old_equipment = get_equipped_in_slot(self.slot)
+		#equip object and show a message about it
+		self.is_equipped = True
+		message('Equipped ' + self.owner.name + ' on ' + self.slot + '.', libtcod.light_green)
+		#if the slot is already being used, dequip whatever is there first
+		if old_equipment is not None:
+			old_equipment.dequip()
+	
+	def dequip(self):
+		#dequip object and show a message about it
+		if not self.is_equipped: return
+		self.is_equipped = False
+		message('Dequipped ' + self.owner.name + ' from ' + self.slot + '.', libtcod.light_yellow)
+		
 class Item:
 	#an item that can be picked up and used.
 	def __init__(self, use_function = None):
@@ -78,7 +108,15 @@ class Item:
 			inventory.append(self.owner)
 			objects.remove(self.owner)
 			message('You picked up a ' + self.owner.name + '!', libtcod.green)
+		#special case: automatically equip, if the corresponding equipment slot is unused
+		equipment = self.owner.equipment
+		if equipment and get_equipped_in_slot(equipment.slot) is None:
+			equipment.equip()
 	def use(self):
+		#special case: if the object has the Equipment component, the "use" action is to equip/dequip
+		if self.owner.equipment:
+			self.owner.equipment.toggle_equip()
+			return
 		#just call the "use_function" if it is defined
 		if self.use_function is None:
 			message('The ' + self.owner.name + ' cannot be used.')
@@ -92,6 +130,9 @@ class Item:
 		self.owner.x = player.x
 		self.owner.y = player.y
 		message('You dropped a ' + self.owner.name + '.', libtcod.yellow)
+		#special case: if the object has the Equipment component, dequip it before dropping
+		if self.owner.equipment:
+			self.owner.equipment.dequip()
 			
 class Rect:
 	def __init__(self, x, y, w, h):
@@ -217,7 +258,7 @@ def handle_keys():
 class Object:
 	#this is a generic object: the player, a monster, an item, the stairs...
 	#it's always represented by a character on screen.
-	def __init__(self, x, y, char, color, name = '', blocks = False, fighter = None, ai = None, item = None, always_visible=False):
+	def __init__(self, x, y, char, color, name = '', blocks = False, fighter = None, ai = None, item = None, always_visible=False, equipment=None):
 		self.x = x
 		self.y = y
 		self.char = char
@@ -237,6 +278,11 @@ class Object:
 		if self.item:
 			self.item.owner = self
 		self.always_visible = always_visible
+		self.equipment = equipment
+		if self.equipment:  #let the Equipment component know who owns it
+			self.equipment.owner = self
+			self.item = Item()
+			self.item.owner = self
  
 	def move(self, dx, dy):
 		#move by the given amount
@@ -300,12 +346,27 @@ class Tile:
 class Fighter:
 	#combat-related properties and methods (monster, player, NPC).
 	def __init__(self, hp, defense, power, xp, death_function=None):
-		self.max_hp = hp
+		self.base_max_hp = hp
 		self.hp = hp
-		self.defense = defense
-		self.power = power
+		self.base_defense = defense
+		self.base_power = power
 		self.death_function = death_function
 		self.xp = xp
+	
+	@property
+	def power(self):
+		bonus = sum(equipment.power_bonus for equipment in get_all_equipped(self.owner))
+		return self.base_power + bonus
+	@property
+	def defense(self):  #return actual defense, by summing up the bonuses from all equipped items
+		bonus = sum(equipment.defense_bonus for equipment in get_all_equipped(self.owner))
+		return self.base_defense + bonus
+	
+	@property
+	def max_hp(self):  #return actual max_hp, by summing up the bonuses from all equipped items
+		bonus = sum(equipment.max_hp_bonus for equipment in get_all_equipped(self.owner))
+		return self.base_max_hp + bonus
+		
 	def take_damage(self, damage):
 		#apply damage if possible
 		if damage > 0:
@@ -366,6 +427,8 @@ def place_objects(room):
 	item_chances['lightning'] = from_dungeon_level([[25, 4]])
 	item_chances['fireball'] =  from_dungeon_level([[25, 6]])
 	item_chances['confuse'] =   from_dungeon_level([[10, 2]])
+	item_chances['sword'] =     from_dungeon_level([[5, 4]])
+	item_chances['shield'] =    from_dungeon_level([[15, 8]])
 	
 	monster_chances = {'orc': 80, 'troll': 20}
 	item_chances = {'heal': 70, 'lightning': 10, 'fireball': 10, 'confuse': 10}
@@ -421,8 +484,17 @@ def place_objects(room):
 			elif choice == 'confuse':
 				#create a lightning bolt scroll (10% chance)
 				item_component = Item(use_function=cast_confuse)
-				
 				item = Object(x, y, '#', name = 'scroll of confuse', color = libtcod.light_yellow, item=item_component, always_visible=True)
+			elif choice == 'sword':
+				#create a sword
+				equipment_component = Equipment(slot='right hand', power_bonus = 3)
+				item = Object(x, y, '/', name = 'sword', color = libtcod.sky, equipment=equipment_component)
+			elif choice == 'shield':
+				#create a shield
+				equipment_component = Equipment(slot='left hand', defense_bonus=1)
+				item = Object(x, y, '[', name = 'shield', color = libtcod.darker_orange, equipment=equipment_component)
+				
+				
 			
 			objects.append(item)
 			item.send_to_back()  #items appear below other objects
@@ -804,7 +876,7 @@ def cast_heal():
 	
 def new_game():
 	global player, inventory, game_msgs, game_state, dungeon_level
-	fighter_component = Fighter(hp=100, defense=1, power=4, xp = 0, death_function=player_death)
+	fighter_component = Fighter(hp=100, defense=1, power=2, xp = 0, death_function=player_death)
 	player = Object(MAP_WIDTH/2, MAP_HEIGHT/2, '@', libtcod.white, 'player', blocks = True, fighter = fighter_component)
 	player.level = 1
 	game_state = 'playing'
@@ -822,6 +894,13 @@ def new_game():
 
 	#a warm welcoming message!
 	message('Welcome stranger! Prepare to perish in the Tombs of the Ancient Kings.', libtcod.red)
+	
+	#initial equipment: a dagger
+	equipment_component = Equipment(slot='right hand', power_bonus=2)
+	obj = Object(0, 0, '-', name = 'dagger', color = libtcod.sky, equipment=equipment_component)
+	inventory.append(obj)
+	equipment_component.equip()
+	obj.always_visible = True
 	
 	
 def initialize_fov():
@@ -958,12 +1037,12 @@ def check_level_up():
                 'Agility (+1 defense, from ' + str(player.fighter.defense) + ')'], LEVEL_SCREEN_WIDTH)
 		
 		if choice == 0:
-			player.fighter.max_hp += 20
+			player.fighter.base_max_hp += 20
 			player.fighter.hp += 20
 		elif choice == 1:
-			player.fighter.power += 1
+			player.fighter.base_power += 1
 		elif choice == 2:
-			player.fighter.defense += 1
+			player.fighter.base_defense += 1
 
 def random_choice_index(chances):  #choose one option from list of chances, returning its index
 	#the dice will land on some number between 1 and the sum of the chances
@@ -993,7 +1072,23 @@ def from_dungeon_level(table):
 		if dungeon_level >= level:
 			return value
 	return 0
-			
+	
+def get_equipped_in_slot(slot):  #returns the equipment in a slot, or None if it's empty
+	for obj in inventory:
+		if obj.equipment and obj.equipment.slot == slot and obj.equipment.is_equipped:
+			return obj.equipment
+	return None
+
+def get_all_equipped(obj):  #returns a list of equipped items
+	if obj == player:
+		equipped_list = []
+		for item in inventory:
+			if item.equipment and item.equipment.is_equipped:
+				equipped_list.append(item.equipment)
+		return equipped_list
+	else:
+		return []  #other objects have no equipment
+	
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
 libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'python/libtcod tutorial', False)
 
