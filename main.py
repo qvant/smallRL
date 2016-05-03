@@ -352,6 +352,8 @@ class BasicMonster:
 				monster.fighter.attack(player)
 		
 def place_objects(room):
+	monster_chances = {'orc': 80, 'troll': 20}
+	item_chances = {'heal': 70, 'lightning': 10, 'fireball': 10, 'confuse': 10}
 	#place monsters
 	#choose random number of monsters
 	num_monsters = libtcod.random_get_int(0, 0, MAX_ROOM_MONSTERS)
@@ -362,13 +364,14 @@ def place_objects(room):
 		y = libtcod.random_get_int(0, room.y1 + 1, room.y2 - 1)
 		
 		if not is_blocked(x, y):
-		
-			if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
+			
+			choice = random_choice(monster_chances)
+			if choice == 'orc':  
 				#create an orc
 				fighter_component = Fighter(hp=10, defense=0, power=3, death_function=monster_death, xp = 35)
 				ai_component = BasicMonster()
 				monster = Object(x, y, 'o', libtcod.desaturated_green, 'orc', True, fighter_component, ai_component)
-			else:
+			elif choice == 'troll':
 				#create a troll
 				fighter_component = Fighter(hp=16, defense=1, power=4, death_function=monster_death, xp = 100)
 				ai_component = BasicMonster()
@@ -385,26 +388,26 @@ def place_objects(room):
 		
 		#only place it if the tile is not blocked
 		if not is_blocked(x, y):
-			dice = libtcod.random_get_int(0, 0, 100)
-			if dice < 70:
+			choice = random_choice(item_chances)
+			if choice == 'heal':
 				#create a healing potion
 				item_component = Item(use_function=cast_heal)
 				item = Object(x, y, '!', name = 'healing potion', color = libtcod.violet, item=item_component, always_visible=True)
-			elif dice < 70+15:
-				#create a lightning bolt scroll (15% chance)
+			elif choice == 'lightning':
+				#create a lightning bolt scroll (10% chance)
 				item_component = Item(use_function=cast_lightning)
 				
 				item = Object(x, y, '#', name = 'scroll of lightning bolt', color = libtcod.light_yellow, item=item_component, always_visible=True)
-			elif dice < 70+10+10:
+			elif choice == 'fireball':
 				#create a fireball scroll (10% chance)
 				item_component = Item(use_function=cast_fireball)
 				
 				item = Object(x, y, '#', name = 'scroll of fireball', color = libtcod.light_yellow, item=item_component, always_visible=True)
-			else:
-				#create a lightning bolt scroll (30% chance)
-				item_component = Item(use_function=cast_lightning)
+			elif choice == 'confuse':
+				#create a lightning bolt scroll (10% chance)
+				item_component = Item(use_function=cast_confuse)
 				
-				item = Object(x, y, '#', name = 'scroll of lightning bolt', color = libtcod.light_yellow, item=item_component, always_visible=True)
+				item = Object(x, y, '#', name = 'scroll of confuse', color = libtcod.light_yellow, item=item_component, always_visible=True)
 			
 			objects.append(item)
 			item.send_to_back()  #items appear below other objects
@@ -945,7 +948,28 @@ def check_level_up():
 			player.fighter.power += 1
 		elif choice == 2:
 			player.fighter.defense += 1
+
+def random_choice_index(chances):  #choose one option from list of chances, returning its index
+	#the dice will land on some number between 1 and the sum of the chances
+	dice = libtcod.random_get_int(0, 1, sum(chances))
 	
+	#go through all chances, keeping the sum so far
+	running_sum = 0
+	choice = 0
+	for w in chances:
+		running_sum += w
+		
+		#see if the dice landed in the part that corresponds to this choice
+		if dice <= running_sum:
+			return choice
+		choice += 1
+		
+def random_choice(chances_dict):
+	#choose one option from dictionary of chances, returning its key
+	chances = chances_dict.values()
+	strings = chances_dict.keys()
+	return strings[random_choice_index(chances)]
+			
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
 libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'python/libtcod tutorial', False)
 
