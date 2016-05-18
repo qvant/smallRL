@@ -22,6 +22,8 @@ FOV_ALGO = 0  #default FOV algorithm
 FOV_LIGHT_WALLS = True
 TORCH_RADIUS = 10
 
+PARALIZE_RANGE = 8
+PARALIZE_NUM_TURNS = 5
 
 INVENTORY_WIDTH = 50 
 
@@ -42,14 +44,23 @@ MAX_OPTIONS = MAX_INVENTORY_ITEMS
 HEAL_AMOUNT = 40 
 LIGHTNING_DAMAGE = 40 
 LIGHTNING_RANGE = 5
+LIGHTNING_JUMPS = 5
+LIGHTNING_JUMP_DMG_REDUCE = 2
+
 CONFUSE_NUM_TURNS = 10
 CONFUSE_RANGE = 8
+CONFUSE_CLOUD_RANGE = 8
+
 FIREBALL_RADIUS = 3
 FIREBALL_DAMAGE = 25
+
+FIREBOLT_RANGE = 5
+FIREBOLT_DAMAGE = 50
 
 #experience and level-ups
 LEVEL_UP_BASE = 200
 LEVEL_UP_FACTOR = 150
+
 
 class ConfusedMonster:
 	#AI for a temporarily confused monster (reverts to previous AI after a while).
@@ -65,7 +76,21 @@ class ConfusedMonster:
 		else:  #restore the previous AI (this one will be deleted because it's not referenced anymore)
 			self.owner.ai = self.old_ai
 			message('The ' + self.owner.name + ' is no longer confused!', libtcod.red)
+
+class ParalizedMonster:
+	#AI for a temporarily confused monster (reverts to previous AI after a while).
+	def __init__(self, old_ai, num_turns=PARALIZE_NUM_TURNS):
+		self.old_ai = old_ai
+		self.num_turns = num_turns
+	def take_turn(self):
+		if self.num_turns > 0:  #still paralized...
+			pass
+			self.num_turns -= 1
 		
+		else:  #restore the previous AI (this one will be deleted because it's not referenced anymore)
+			self.owner.ai = self.old_ai
+			message('The ' + self.owner.name + ' is no longer paralized!', libtcod.red)
+			
 class Equipment:
 	#an object that can be equipped, yielding bonuses. automatically adds the Item component.
 	def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0):
@@ -467,13 +492,18 @@ def place_objects(room):
 	item_chances = {}
 	item_chances['heal'] = 35  #healing potion always shows up, even if all other items have 0 chance
 	item_chances['lightning'] = from_dungeon_level([[25, 4]])
+	item_chances['chain lightning'] = from_dungeon_level([[10, 4]])
 	item_chances['fireball'] =  from_dungeon_level([[25, 6]])
+	item_chances['firebolt'] =  from_dungeon_level([[25, 6]])
+	item_chances['confuse cloud'] =  from_dungeon_level([[5, 6]])
 	item_chances['confuse'] =   from_dungeon_level([[10, 2]])
+	item_chances['paralize'] =   from_dungeon_level([[10, 2]])
+	item_chances['teleport'] =   from_dungeon_level([[10, 2]])
 	item_chances['sword'] =     from_dungeon_level([[5, 4]])
 	item_chances['shield'] =    from_dungeon_level([[15, 8]])
 	
 	monster_chances = {'orc': 80, 'troll': 20}
-	item_chances = {'heal': 70, 'lightning': 10, 'fireball': 10, 'confuse': 10}
+	#item_chances = {'heal': 70, 'lightning': 10, 'fireball': 10, 'confuse': 10}
 	#place monsters
 	#choose random number of monsters
 	num_monsters = libtcod.random_get_int(0, 0, max_monsters)
@@ -518,15 +548,35 @@ def place_objects(room):
 				item_component = Item(use_function=cast_lightning)
 				
 				item = Object(x, y, '#', name = 'scroll of lightning bolt', color = libtcod.light_yellow, item=item_component, always_visible=True)
+			elif choice == 'chain lightning':
+				#create a chain lightning bolt scroll 
+				item_component = Item(use_function=cast_chain_lightning)
+				
+				item = Object(x, y, '#', name = 'scroll of chain lightning', color = libtcod.light_green, item=item_component, always_visible=True)
 			elif choice == 'fireball':
 				#create a fireball scroll (10% chance)
 				item_component = Item(use_function=cast_fireball)
+				
+				item = Object(x, y, '#', name = 'scroll of fireball', color = libtcod.light_yellow, item=item_component, always_visible=True)
+			elif choice == 'firebolt':
+				#create a fireball scroll (10% chance)
+				item_component = Item(use_function=cast_firebolt)
 				
 				item = Object(x, y, '#', name = 'scroll of fireball', color = libtcod.light_yellow, item=item_component, always_visible=True)
 			elif choice == 'confuse':
 				#create a lightning bolt scroll (10% chance)
 				item_component = Item(use_function=cast_confuse)
 				item = Object(x, y, '#', name = 'scroll of confuse', color = libtcod.light_yellow, item=item_component, always_visible=True)
+			elif choice == 'confuse cloud':
+				item_component = Item(use_function=cast_confuse_cloud)
+				item_component = Item(use_function=cast_confuse_cloud)
+				item = Object(x, y, '#', name = 'scroll of confuse cloud', color = libtcod.light_yellow, item=item_component, always_visible=True)
+			elif choice == 'paralize':
+				item_component = Item(use_function=cast_paralize)
+				item = Object(x, y, '#', name = 'scroll of paralize', color = libtcod.light_yellow, item=item_component, always_visible=True)
+			elif choice == 'teleport':
+				item_component = Item(use_function=cast_teleport)
+				item = Object(x, y, '#', name = 'scroll of teleport', color = libtcod.light_yellow, item=item_component, always_visible=True)
 			elif choice == 'sword':
 				#create a sword
 				equipment_component = Equipment(slot='right hand', power_bonus = 3)
@@ -535,7 +585,6 @@ def place_objects(room):
 				#create a shield
 				equipment_component = Equipment(slot='left hand', defense_bonus=1)
 				item = Object(x, y, '[', name = 'shield', color = libtcod.darker_orange, equipment=equipment_component)
-				
 				
 			
 			objects.append(item)
@@ -553,6 +602,36 @@ def cast_lightning():
         + str(LIGHTNING_DAMAGE) + ' hit points.', libtcod.light_blue)
 	monster.fighter.take_damage(LIGHTNING_DAMAGE)
 	
+def cast_firebolt():
+	#find closest enemy (inside a maximum range) and damage it
+	message('Left-click a target tile for the firebolt, or right-click to cancel.', libtcod.light_cyan)
+	(x, y) = target_tile()
+	if x is None: return 'cancelled'
+	
+	#zap it!
+	message('A bolt of fire strikes the ' + monster.name + ' with a loud thunder! The damage is '
+        + str(FIREBOLT_DAMAGE) + ' hit points.', libtcod.orange)
+	monster.fighter.take_damage(FIREBOLT_DAMAGE)		
+	
+def cast_chain_lightning():
+	#find closest enemy (inside a maximum range) and damage it
+	exclude = [player]
+	monster = closest_monster(LIGHTNING_RANGE)
+	if monster is None:  #no enemy found within maximum range
+		message('No enemy is close enough to strike.', libtcod.red)
+		return 'cancelled'
+	
+	#zap it!
+	for i in range(LIGHTNING_JUMPS):
+		message('A chain lighting strikes the ' + monster.name + ' with a loud thunder! The damage is '
+        + str(LIGHTNING_DAMAGE - i * LIGHTNING_JUMP_DMG_REDUCE) + ' hit points.', libtcod.light_blue)
+		monster.fighter.take_damage(LIGHTNING_DAMAGE - i * LIGHTNING_JUMP_DMG_REDUCE)
+		monster = closest_monster(LIGHTNING_RANGE, monster, exclude)
+		if monster is None:
+			break
+		exclude.append(monster)
+		
+	
 def cast_confuse():
 	message('Left-click an enemy to confuse it, or right-click to cancel.', libtcod.light_cyan)
 	monster = target_monster(CONFUSE_RANGE)
@@ -561,7 +640,42 @@ def cast_confuse():
 	old_ai = monster.ai
 	monster.ai = ConfusedMonster(old_ai)
 	monster.ai.owner = monster  #tell the new component who owns it
-	message('The eyes of the ' + monster.name + ' look vacant, as he starts to stumble around!', libtcod.light_green)
+	message('The eyes of the ' + monster.name + ' look vacant, as he starts to stumble around!', libtcod.light_green)	
+	
+def cast_paralize():
+	message('Left-click an enemy to paralize it, or right-click to cancel.', libtcod.light_cyan)
+	monster = target_monster(PARALIZE_RANGE)
+	if monster is None: return 'cancelled'
+	#replace the monster's AI with a "confused" one; after some turns it will restore the old AI
+	old_ai = monster.ai
+	monster.ai = ParalizedMonster(old_ai)
+	monster.ai.owner = monster  #tell the new component who owns it
+	message('The eyes of the ' + monster.name + ' look black and mindless!', libtcod.light_green)	
+	
+def cast_teleport():
+	global fov_recompute
+	while True:
+		x = libtcod.random_get_int(0, MAP_WIDTH,  MAP_WIDTH / 2)
+		y = libtcod.random_get_int(0, MAP_HEIGHT, MAP_HEIGHT / 2)
+		if not is_blocked(x, y):
+			break
+	player.x = x
+	player.y = y
+	fov_recompute = True
+	message('You sudden appear in another place!', libtcod.light_green)	
+	
+def cast_confuse_cloud():
+	message('Left-click a target tile for the confuse cloud, or right-click to cancel.', libtcod.light_cyan)
+	(x, y) = target_tile()
+	if x is None: return 'cancelled'
+	for obj in objects:  #damage every fighter in range, including the player
+		if obj.distance(x, y) <= CONFUSE_CLOUD_RANGE and obj.fighter and obj != player:
+			#replace the monster's AI with a "confused" one; after some turns it will restore the old AI
+			old_ai = obj.ai
+			obj.ai = ConfusedMonster(old_ai)
+			obj.ai.owner = obj  #tell the new component who owns it
+			message('The eyes of the ' + obj.name + ' look vacant, as he starts to stumble around!', libtcod.light_green)
+	
 
 def cast_fireball():
 	#ask the player for a target tile to throw a fireball at
@@ -576,15 +690,17 @@ def cast_fireball():
 			obj.fighter.take_damage(FIREBALL_DAMAGE)
 
 			
-def closest_monster(max_range):
-	#find closest enemy, up to a maximum range, and in the player's FOV
+def closest_monster(max_range, target = None, exclude = []):
+	#find closest enemy, up to a maximum range, and in the target's FOV
+	if target is None:
+		target = player
 	closest_enemy = None
 	closest_dist = max_range + 1  #start with (slightly more than) maximum range
 	
 	for object in objects:
-		if object.fighter and not object == player and libtcod.map_is_in_fov(fov_map, object.x, object.y):
+		if object.fighter and not object == target and libtcod.map_is_in_fov(fov_map, object.x, object.y) and object not in exclude:
 			#calculate distance between this object and the player
-			dist = player.distance_to(object)
+			dist = target.distance_to(object)
 			if dist < closest_dist:  #it's closer, so remember it
 				closest_enemy = object
 				closest_dist = dist
@@ -943,6 +1059,8 @@ def new_game():
 	inventory.append(obj)
 	equipment_component.equip()
 	obj.always_visible = True
+	
+	
 	
 	
 def initialize_fov():
