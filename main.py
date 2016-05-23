@@ -501,6 +501,12 @@ def place_objects(room):
 	item_chances['teleport'] =   from_dungeon_level([[10, 2]])
 	item_chances['sword'] =     from_dungeon_level([[5, 4]])
 	item_chances['shield'] =    from_dungeon_level([[15, 8]])
+	item_chances['leather helm'] =    from_dungeon_level([[15, 2]])
+	item_chances['skullcap'] =    from_dungeon_level([[10, 46]])
+	item_chances['bascinet'] =    from_dungeon_level([[5, 12]])
+	item_chances['leather jacket'] =    from_dungeon_level([[15, 3]])
+	item_chances['chain mail'] =    from_dungeon_level([[10, 9]])
+	item_chances['full plate'] =    from_dungeon_level([[5, 14]])
 	
 	monster_chances = {'orc': 80, 'troll': 20}
 	#item_chances = {'heal': 70, 'lightning': 10, 'fireball': 10, 'confuse': 10}
@@ -585,6 +591,30 @@ def place_objects(room):
 				#create a shield
 				equipment_component = Equipment(slot='left hand', defense_bonus=1)
 				item = Object(x, y, '[', name = 'shield', color = libtcod.darker_orange, equipment=equipment_component)
+			elif choice == 'leather helm':
+				#create a leather helm
+				equipment_component = Equipment(slot='head', defense_bonus=1)
+				item = Object(x, y, '[', name = 'leather helm', color = libtcod.darker_orange, equipment=equipment_component)
+			elif choice == 'skullcap':
+				#create a skullcap
+				equipment_component = Equipment(slot='head', defense_bonus=2)
+				item = Object(x, y, '[', name = 'skullcap', color = libtcod.darker_orange, equipment=equipment_component)
+			elif choice == 'bascinet':
+				#create a bascinet
+				equipment_component = Equipment(slot='head', defense_bonus=3)
+				item = Object(x, y, '[', name = 'bascinet', color = libtcod.darker_orange, equipment=equipment_component)
+			elif choice == 'leather jacket':
+				#create a leather jacket
+				equipment_component = Equipment(slot='breast', defense_bonus=1)
+				item = Object(x, y, '[', name = 'leather jacket', color = libtcod.darker_orange, equipment=equipment_component)
+			elif choice == 'chain mail':
+				#create a chain mail
+				equipment_component = Equipment(slot='breast', defense_bonus=3)
+				item = Object(x, y, '[', name = 'chain mail', color = libtcod.darker_orange, equipment=equipment_component)
+			elif choice == 'full plate':
+				#create a full plate
+				equipment_component = Equipment(slot='breast', defense_bonus=6)
+				item = Object(x, y, '[', name = 'full plate', color = libtcod.darker_orange, equipment=equipment_component)
 				
 			
 			objects.append(item)
