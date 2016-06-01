@@ -57,6 +57,8 @@ FIREBALL_DAMAGE = 25
 FIREBOLT_RANGE = 5
 FIREBOLT_DAMAGE = 50
 
+POISON_DAMAGE = 2
+
 #experience and level-ups
 LEVEL_UP_BASE = 200
 LEVEL_UP_FACTOR = 150
@@ -93,12 +95,14 @@ class ParalizedMonster:
 			
 class Equipment:
 	#an object that can be equipped, yielding bonuses. automatically adds the Item component.
-	def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0):
+	def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0, add_attacks = 0, perks = []):
 		self.slot = slot
 		self.is_equipped = False
 		self.power_bonus = power_bonus
 		self.defense_bonus = defense_bonus
 		self.max_hp_bonus = max_hp_bonus
+		self.add_attacks = add_attacks
+		self.perks = perks
 		
 	def toggle_equip(self):  #toggle equip/dequip status
 		if self.is_equipped:
@@ -412,13 +416,15 @@ class Tile:
 		
 class Fighter:
 	#combat-related properties and methods (monster, player, NPC).
-	def __init__(self, hp, defense, power, xp, death_function=None):
+	def __init__(self, hp, defense, power, xp, death_function=None, attacks = 1, perks = []):
 		self.base_max_hp = hp
 		self.hp = hp
 		self.base_defense = defense
 		self.base_power = power
 		self.death_function = death_function
 		self.xp = xp
+		self.base_attacks = attacks
+		self.base_perks = perks
 	
 	@property
 	def power(self):
@@ -433,6 +439,17 @@ class Fighter:
 	def max_hp(self):  #return actual max_hp, by summing up the bonuses from all equipped items
 		bonus = sum(equipment.max_hp_bonus for equipment in get_all_equipped(self.owner))
 		return self.base_max_hp + bonus
+	@property
+	def attack_num(self):
+		bonus = sum(equipment.add_attacks for equipment in get_all_equipped(self.owner))
+		return self.base_attacks + bonus
+	
+	@property
+	def perks(self):
+		perks = []
+		for i in get_all_equipped(self.owner):
+			perks += i.perks
+		return perks + self.base_perks
 		
 	def take_damage(self, damage):
 		#apply damage if possible
@@ -448,14 +465,20 @@ class Fighter:
 				player.fighter.xp += self.xp
 	def attack(self, target):
 		#a simple formula for attack damage
-		damage = self.power - target.fighter.defense
-		
-		if damage > 0:
-			#make the target take some damage
-			message( self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.')
-			target.fighter.take_damage(damage)
+		if not ('phase' in self.perks):
+			damage = self.power - target.fighter.defense
 		else:
-			message (self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!')
+			damage = self.power
+		
+		for i in range(self.attack_num):
+			if damage > 0:
+				#make the target take some damage
+				message( self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.')
+				target.fighter.take_damage(damage)
+			else:
+				message (self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!')
+			if 'poison' in self.perks:
+				target.fighter.base_perks.append('poisoned')
 	def heal(self, amount):
 		#heal by the given amount, without going over the maximum
 		self.hp += amount
@@ -500,6 +523,11 @@ def place_objects(room):
 	item_chances['paralize'] =   from_dungeon_level([[10, 2]])
 	item_chances['teleport'] =   from_dungeon_level([[10, 2]])
 	item_chances['sword'] =     from_dungeon_level([[5, 4]])
+	item_chances['holy sword'] =     from_dungeon_level([[7, 4]])
+	item_chances['fire sword'] =     from_dungeon_level([[7, 4]])
+	item_chances['mastercrafted_dagger'] =     from_dungeon_level([[5, 4]])
+	item_chances['poisoned dagger'] =     from_dungeon_level([[5, 4]])
+	item_chances['phase_dagger'] =     from_dungeon_level([[7, 4]])
 	item_chances['shield'] =    from_dungeon_level([[15, 8]])
 	item_chances['leather helm'] =    from_dungeon_level([[15, 2]])
 	item_chances['skullcap'] =    from_dungeon_level([[10, 46]])
@@ -587,6 +615,25 @@ def place_objects(room):
 				#create a sword
 				equipment_component = Equipment(slot='right hand', power_bonus = 3)
 				item = Object(x, y, '/', name = 'sword', color = libtcod.sky, equipment=equipment_component)
+			elif choice == 'holy sword':
+				equipment_component = Equipment(slot='right hand', power_bonus = 10)
+				item = Object(x, y, '/', name = 'holy sword', color = libtcod.sky, equipment=equipment_component)
+			elif choice == 'fire sword':
+				#create a sword
+				equipment_component = Equipment(slot='right hand', power_bonus = 9)
+				item = Object(x, y, '/', name = 'fire sword', color = libtcod.sky, equipment=equipment_component)
+			elif choice == 'mastercrafted_dagger':
+				#create a sword
+				equipment_component = Equipment(slot='right hand', power_bonus = 2, add_attacks = 2)
+				item = Object(x, y, '/', name = 'mastercrafted_dagger', color = libtcod.sky, equipment=equipment_component)
+			elif choice == 'poisoned dagger':
+				#create a sword
+				equipment_component = Equipment(slot='right hand', power_bonus = 2, add_attacks = 2, perks = 'poison')
+				item = Object(x, y, '/', name = 'poisoned dagger', color = libtcod.sky, equipment=equipment_component)
+			elif choice == 'phase_dagger':
+				#create a sword
+				equipment_component = Equipment(slot='right hand', power_bonus = 3, add_attacks = 3, perks = ['phase'])
+				item = Object(x, y, '/', name = 'phase_dagger', color = libtcod.sky, equipment=equipment_component)
 			elif choice == 'shield':
 				#create a shield
 				equipment_component = Equipment(slot='left hand', defense_bonus=1)
@@ -781,7 +828,7 @@ def player_move_or_attack(dx, dy):
 	global fov_recompute
 	
 	#the coordinates the player is moving to/attacking
-	x = player.x + dx
+	x = player.x + dx 
 	y = player.y + dy
 	#try to find an attackable object there
 	target = None
@@ -1130,6 +1177,10 @@ def play_game():
 			for object in objects:
 				if object.ai:
 					object.ai.take_turn()
+				if object.fighter:
+					for x in object.fighter.perks:
+						if x == 'poisoned':
+							object.fighter.take_damage(POISON_DAMAGE)
 	#key = libtcod.console_wait_for_keypress(True)
 					
 def main_menu():
