@@ -59,10 +59,39 @@ FIREBOLT_DAMAGE = 50
 
 POISON_DAMAGE = 2
 
+BOW_RANGE = 5
+
 #experience and level-ups
 LEVEL_UP_BASE = 200
 LEVEL_UP_FACTOR = 150
 
+class casterMonster:
+	def take_turn(self):
+		monster = self.owner
+		if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
+			message( 'The ' + self.owner.name + ' growls!')
+			#move towards player if far away
+			if monster.distance_to(player) >= FIREBOLT_RANGE:
+				monster.move_astar(player)
+			elif monster.distance_to(player) >= 2: 
+				cast_fireboltAI()
+			#close enough, attack! (if the player is still alive.)
+			elif player.fighter.hp > 0:
+				monster.fighter.attack(player)
+
+class rangedMonster:
+	def take_turn(self):
+		monster = self.owner
+		if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
+			message( 'The ' + self.owner.name + ' growls!')
+			#move towards player if far away
+			if monster.distance_to(player) >= BOW_RANGE:
+				monster.move_astar(player)
+			elif monster.distance_to(player) <= 2: 
+				monster.fighter.attack(player)
+			#close enough, attack! (if the player is still alive.)
+			elif player.fighter.hp > 0:
+				monster.move_away(player)
 
 class ConfusedMonster:
 	#AI for a temporarily confused monster (reverts to previous AI after a while).
@@ -405,6 +434,28 @@ class Object:
 		#Delete the path to free memory
 		libtcod.path_delete(my_path)
 		
+	def move_away(self, target):
+		if target.x > self.x:
+			x = -1
+		elif target.x > self.x:
+			x = 1
+		else:
+			x = 0
+		if target.y > self.y:
+			y = -1
+		elif target.u > self.u:
+			y = 1
+		else:
+			y = 0
+		if is_blocked(self.x + x, self.y + y ):
+			x = 0
+		if is_blocked(self.x + x, self.y + y ):
+			y = 0
+		self.move(x, y)  
+		
+		#Delete the path to free memory
+		libtcod.path_delete(my_path)
+		
 class Tile:
 	def __init__(self, blocked, block_sight = None):
 		self.blocked = blocked
@@ -416,7 +467,7 @@ class Tile:
 		
 class Fighter:
 	#combat-related properties and methods (monster, player, NPC).
-	def __init__(self, hp, defense, power, xp, death_function=None, attacks = 1, perks = []):
+	def __init__(self, hp, defense, power, xp, death_function=None, attacks = 1, perks = [], spells = []):
 		self.base_max_hp = hp
 		self.hp = hp
 		self.base_defense = defense
@@ -425,6 +476,7 @@ class Fighter:
 		self.xp = xp
 		self.base_attacks = attacks
 		self.base_perks = perks
+		self.base_spells = spells
 	
 	@property
 	def power(self):
@@ -450,6 +502,9 @@ class Fighter:
 		for i in get_all_equipped(self.owner):
 			perks += i.perks
 		return perks + self.base_perks
+	@property
+	def spells(self):
+		return self.base_spells
 		
 	def take_damage(self, damage):
 		#apply damage if possible
@@ -471,11 +526,11 @@ class Fighter:
 			damage = self.power
 		
 		for i in range(self.attack_num):
-			if damage > 0:
+			if damage > 0 and target.fighter is not None:
 				#make the target take some damage
 				message( self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.')
 				target.fighter.take_damage(damage)
-			else:
+			elif target.fighter is not None:
 				message (self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!')
 			if 'poison' in self.perks:
 				target.fighter.base_perks.append('poisoned')
@@ -506,7 +561,12 @@ def place_objects(room):
 	#chance of each monster
 	monster_chances = {}
 	monster_chances['orc'] = 80  #orc always shows up, even if all other monsters have 0 chance
-	monster_chances['troll'] = from_dungeon_level([[15, 3], [30, 5], [60, 7]])
+	monster_chances['troll'] = from_dungeon_level([[15, 3], [30, 5], [60, 7], [30, 9]])
+	monster_chances['shadow'] = from_dungeon_level([[20, 5], [60, 7]])
+	monster_chances['snake'] = from_dungeon_level([[15, 3], [30, 5], [60, 7]])
+	monster_chances['orc archer'] = from_dungeon_level([[15, 3], [30, 5], [60, 7]])
+	monster_chances['lich'] = from_dungeon_level([[30, 5], [40, 7]])
+	monster_chances['dragon'] = from_dungeon_level([ [20, 9], [30, 12]])
 	
 	#maximum number of items per room
 	max_items = from_dungeon_level([[1, 1], [2, 4]])
@@ -536,7 +596,6 @@ def place_objects(room):
 	item_chances['chain mail'] =    from_dungeon_level([[10, 9]])
 	item_chances['full plate'] =    from_dungeon_level([[5, 14]])
 	
-	monster_chances = {'orc': 80, 'troll': 20}
 	#item_chances = {'heal': 70, 'lightning': 10, 'fireball': 10, 'confuse': 10}
 	#place monsters
 	#choose random number of monsters
@@ -550,6 +609,7 @@ def place_objects(room):
 		if not is_blocked(x, y):
 			
 			choice = random_choice(monster_chances)
+			print(choice)
 			if choice == 'orc':  
 				#create an orc
 				fighter_component = Fighter(hp=20, defense=0, power=4, death_function=monster_death, xp = 35)
@@ -560,6 +620,26 @@ def place_objects(room):
 				fighter_component = Fighter(hp=30, defense=2, power=8, death_function=monster_death, xp = 100)
 				ai_component = BasicMonster()
 				monster = Object(x, y, 'T', libtcod.darker_green, 'troll', True, fighter_component, ai_component)
+			elif choice == 'shadow':
+				fighter_component = Fighter(hp=50, defense=10, power=8, death_function=monster_death, xp = 200, perks = ['phase'])
+				ai_component = BasicMonster()
+				monster = Object(x, y, 's', libtcod.darker_blue, 'shadow', True, fighter_component, ai_component)
+			elif choice == 'snake':
+				fighter_component = Fighter(hp=70, defense=1, power=3, death_function=monster_death, xp = 200, attacks = 2, perks = ['poison'])
+				ai_component = BasicMonster()
+				monster = Object(x, y, 's', libtcod.darker_yellow, 'snake', True, fighter_component, ai_component)
+			elif choice == 'lich':
+				fighter_component = Fighter(hp=70, defense=6, power=8, death_function=monster_death, xp = 400, attacks = 1)
+				ai_component = casterMonster()
+				monster = Object(x, y, 's', libtcod.lighter_red, 'lich', True, fighter_component, ai_component)
+			elif choice == 'orc archer':
+				fighter_component = Fighter(hp=20, defense=0, power=5, death_function=monster_death, xp = 400, attacks = 1)
+				ai_component = rangedMonster()
+				monster = Object(x, y, 's', libtcod.desaturated_green, 'orc archer', True, fighter_component, ai_component)
+			elif choice == 'dragon':
+				fighter_component = Fighter(hp=200, defense=8, power=10, death_function=monster_death, xp = 400, attacks = 1)
+				ai_component = basicMonster()
+				monster = Object(x, y, 's', libtcod.darker_red, 'dragon', True, fighter_component, ai_component)
 				
 			objects.append(monster)
 	#place items
@@ -688,7 +768,12 @@ def cast_firebolt():
 	#zap it!
 	message('A bolt of fire strikes the ' + monster.name + ' with a loud thunder! The damage is '
         + str(FIREBOLT_DAMAGE) + ' hit points.', libtcod.orange)
-	monster.fighter.take_damage(FIREBOLT_DAMAGE)		
+	monster.fighter.take_damage(FIREBOLT_DAMAGE)	
+	
+def cast_fireboltAI():
+	message('A bolt of fire strikes you with a loud thunder! The damage is '
+        + str(FIREBOLT_DAMAGE) + ' hit points.', libtcod.orange)
+	player.fighter.take_damage(FIREBOLT_DAMAGE)		
 	
 def cast_chain_lightning():
 	#find closest enemy (inside a maximum range) and damage it
