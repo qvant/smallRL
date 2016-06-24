@@ -3,6 +3,7 @@ import math
 import textwrap 
 import shelve
 import time
+import os
 
 SCREEN_WIDTH = 80
 SCREEN_HEIGHT = 50
@@ -316,7 +317,7 @@ def handle_keys():
 class Object:
 	#this is a generic object: the player, a monster, an item, the stairs...
 	#it's always represented by a character on screen.
-	def __init__(self, x, y, char, color, name = '', blocks = False, fighter = None, ai = None, item = None, always_visible=False, equipment=None):
+	def __init__(self, x, y, char, color, name = '', blocks = False, fighter = None, ai = None, item = None, always_visible=False, equipment=None, stats=None):
 		self.x = x
 		self.y = y
 		self.char = char
@@ -341,6 +342,7 @@ class Object:
 			self.equipment.owner = self
 			self.item = Item()
 			self.item.owner = self
+		self.stats = stats
  
 	def move(self, dx, dy):
 		#move by the given amount
@@ -510,6 +512,10 @@ class Fighter:
 		#apply damage if possible
 		if damage > 0:
 			self.hp -= damage
+		if self.owner != player:
+			player.stats.recive_dmg(damage)
+		else:
+			player.stats.inflict_dmg(damage)
 		if self.hp <= 0:
 			function = self.death_function
 			if function is not None:
@@ -518,6 +524,7 @@ class Fighter:
 				self.owner.always_visible = True
 			if self.owner != player:  #yield experience to the player
 				player.fighter.xp += self.xp
+				player.stats.kill_monster()
 	def attack(self, target):
 		#a simple formula for attack damage
 		if not ('phase' in self.perks):
@@ -553,6 +560,27 @@ class BasicMonster:
 			#close enough, attack! (if the player is still alive.)
 			elif player.fighter.hp > 0:
 				monster.fighter.attack(player)
+				
+class Stats:
+	def __init__(self, name = None):
+		self.steps = 0
+		self.dmg_recived = 0
+		self.dmg_inflicted = 0
+		self.scrolls_used = 0
+		self.potions_used = 0
+		self.monster_killed = 0
+	def make_step(self):
+		self.steps += 1
+	def recive_dmg(self, dmg):
+		self.dmg_recived += dmg
+	def inflict_dmg(self, dmg):
+		self.dmg_inflicted += dmg
+	def used_scroll(self):
+		self.scrolls_used += 1
+	def use_potion(self):
+		self.potions_used += 1
+	def kill_monster(self):
+		self.monster_killed += 1
 		
 def place_objects(room):
 	#maximum number of monsters per room
@@ -609,7 +637,6 @@ def place_objects(room):
 		if not is_blocked(x, y):
 			
 			choice = random_choice(monster_chances)
-			print(choice)
 			if choice == 'orc':  
 				#create an orc
 				fighter_component = Fighter(hp=20, defense=0, power=4, death_function=monster_death, xp = 35)
@@ -758,6 +785,7 @@ def cast_lightning():
 	message('A lighting bolt strikes the ' + monster.name + ' with a loud thunder! The damage is '
         + str(LIGHTNING_DAMAGE) + ' hit points.', libtcod.light_blue)
 	monster.fighter.take_damage(LIGHTNING_DAMAGE)
+	player.stats.use_scroll()
 	
 def cast_firebolt():
 	#find closest enemy (inside a maximum range) and damage it
@@ -768,7 +796,8 @@ def cast_firebolt():
 	#zap it!
 	message('A bolt of fire strikes the ' + monster.name + ' with a loud thunder! The damage is '
         + str(FIREBOLT_DAMAGE) + ' hit points.', libtcod.orange)
-	monster.fighter.take_damage(FIREBOLT_DAMAGE)	
+	monster.fighter.take_damage(FIREBOLT_DAMAGE)
+	player.stats.use_scroll()	
 	
 def cast_fireboltAI():
 	message('A bolt of fire strikes you with a loud thunder! The damage is '
@@ -792,6 +821,7 @@ def cast_chain_lightning():
 		if monster is None:
 			break
 		exclude.append(monster)
+	player.stats.use_scroll()
 		
 	
 def cast_confuse():
@@ -803,6 +833,7 @@ def cast_confuse():
 	monster.ai = ConfusedMonster(old_ai)
 	monster.ai.owner = monster  #tell the new component who owns it
 	message('The eyes of the ' + monster.name + ' look vacant, as he starts to stumble around!', libtcod.light_green)	
+	player.stats.use_scroll()
 	
 def cast_paralize():
 	message('Left-click an enemy to paralize it, or right-click to cancel.', libtcod.light_cyan)
@@ -813,6 +844,7 @@ def cast_paralize():
 	monster.ai = ParalizedMonster(old_ai)
 	monster.ai.owner = monster  #tell the new component who owns it
 	message('The eyes of the ' + monster.name + ' look black and mindless!', libtcod.light_green)	
+	player.stats.use_scroll()
 	
 def cast_teleport():
 	global fov_recompute
@@ -825,6 +857,7 @@ def cast_teleport():
 	player.y = y
 	fov_recompute = True
 	message('You sudden appear in another place!', libtcod.light_green)	
+	player.stats.use_scroll()
 	
 def cast_confuse_cloud():
 	message('Left-click a target tile for the confuse cloud, or right-click to cancel.', libtcod.light_cyan)
@@ -837,6 +870,7 @@ def cast_confuse_cloud():
 			obj.ai = ConfusedMonster(old_ai)
 			obj.ai.owner = obj  #tell the new component who owns it
 			message('The eyes of the ' + obj.name + ' look vacant, as he starts to stumble around!', libtcod.light_green)
+	player.stats.use_scroll()
 	
 
 def cast_fireball():
@@ -850,6 +884,7 @@ def cast_fireball():
 		if obj.distance(x, y) <= FIREBALL_RADIUS and obj.fighter:
 			message('The ' + obj.name + ' gets burned for ' + str(FIREBALL_DAMAGE) + ' hit points.', libtcod.orange)
 			obj.fighter.take_damage(FIREBALL_DAMAGE)
+	player.stats.use_scroll()
 
 			
 def closest_monster(max_range, target = None, exclude = []):
@@ -928,6 +963,7 @@ def player_move_or_attack(dx, dy):
 	else:
 		player.move(dx, dy)
 		fov_recompute = True
+		player.stats.make_step
 	#time.sleep(0.1)
 	
 def make_map():
@@ -1015,6 +1051,46 @@ def player_death(player):
 	#for added effect, transform the player into a corpse!
 	player.char = '%'
 	player.color = libtcod.dark_red
+	
+	window = libtcod.console_new(SCREEN_WIDTH, SCREEN_HEIGHT)
+	
+	#print the header, with auto-wrap
+	libtcod.console_set_default_background(window, libtcod.green)
+	libtcod.console_set_default_foreground(window, libtcod.yellow)
+	dump_text = "You died! \n" + "You was level " + str(player.level) + "\n You achieved " + str(dungeon_level) + " with " + str(player.fighter.max_hp) + " hp " 
+	dump_text += "\n " + str(player.fighter.base_power) + " strength "
+	dump_text += "\n " + str(player.fighter.base_defense) + " agility "
+	dump_text += "\n You made: " + str(player.stats.steps) + " steps "
+	dump_text += "\n You used: " + str(player.stats.scrolls_used) + " scrolls "
+	dump_text += "\n You used: " + str(player.stats.potions_used) + " potions "
+	dump_text += "\n You recieved: " + str(player.stats.dmg_recived) + " damage "
+	dump_text += "\n You inflicted: " + str(player.stats.dmg_inflicted) + " damage "
+	dump_text += "\n You killed: " + str(player.stats.monster_killed) + " monsters "
+	dump_text += "\n You had: "
+	for obj in inventory:
+		dump_text += "\n " + obj.name
+	dump_text += "\n And it was completely useless"
+	dump_msg  = dump_text + "\n Press a to make character dump and any other key to close stat screen"
+	#blit the contents of "window" to the root console
+	x = SCREEN_WIDTH/2 
+	y = SCREEN_HEIGHT/2
+	libtcod.console_print_ex(window, 0, 0, libtcod.BKGND_NONE, libtcod.LEFT, dump_msg)
+	
+	 
+	# 0.7 background transparacy
+	libtcod.console_blit(window, 0, 0, x, y, 0, x, y, 1.0, 0.7)
+	#present the root console to the player and wait for a key-press
+	libtcod.console_flush()
+	key = libtcod.console_wait_for_keypress(True)
+	key_char = chr(key.c)
+	if key_char == 'a':
+		filename = "dumps/"+ str(player.name)+".cdp"
+		dir = os.path.dirname(filename)
+		if not os.path.exists(dir):
+			os.makedirs(dir)
+		f = open(filename, 'w')
+		f.write(dump_text)
+		f.close()
  
 def monster_death(monster):
 	#transform it into a nasty corpse! it doesn't block, can't be
@@ -1193,11 +1269,13 @@ def cast_heal():
 
 	message('Your wounds start to feel better!', libtcod.light_violet)
 	player.fighter.heal(HEAL_AMOUNT)
+	player.stats.use_potion()
 	
 def new_game():
 	global player, inventory, game_msgs, game_state, dungeon_level
 	fighter_component = Fighter(hp=100, defense=1, power=2, xp = 0, death_function=player_death)
-	player = Object(MAP_WIDTH/2, MAP_HEIGHT/2, '@', libtcod.white, 'player', blocks = True, fighter = fighter_component)
+	stats_component = Stats()
+	player = Object(MAP_WIDTH/2, MAP_HEIGHT/2, '@', libtcod.white, 'player', blocks = True, fighter = fighter_component, stats = stats_component)
 	player.level = 1
 	game_state = 'playing'
 	libtcod.console_clear(con)  #unexplored areas start black (which is the default background color)
