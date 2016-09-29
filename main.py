@@ -2,6 +2,8 @@ import libtcodpy as libtcod
 import math
 import textwrap 
 import shelve
+import anydbm 
+import dbhash 
 import time
 import os
 

@@ -46,3 +46,4 @@ savegame
 build/bdist.win32/winexe/collect-2.7/_ctypes.pyd
 build/bdist.win32/winexe/bundle-2.7/python27.dll
 *.cdp
+*.pyd

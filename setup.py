@@ -9,6 +9,8 @@ assets_dir = '.\\'
 # Filetypes not to be included in the above.
 excluded_file_types = ['py','pyc','project','pydevproject', 'git', 'savegame', 'gitattributes', 'gitignore', 'sample', '.git', 'bat']
  
+
+	
 def get_data_files(base_dir, target_dir, list=[]):
 	"""
 	" * get_data_files
@@ -35,7 +37,7 @@ my_files = get_data_files(sys.path[0] + '\\', assets_dir)
 # Build a dictionary of the options we want.
 opts = { 'py2exe': {
                     'ascii':'True',
-                    'excludes':['_ssl','_hashlib', 'anydbm', 'dbhash', 'subprocess', 'doctest', 'pdb', 'unittest', 'difflib', 'inspect', 'email'],
+                    #'excludes':['_ssl','_hashlib', 'subprocess', 'doctest', 'pdb', 'unittest', 'difflib', 'inspect', 'email'],
                     #'includes' : ['anydbm', 'dbhash'],
                     'bundle_files':'1',
                     'compressed':'True',
